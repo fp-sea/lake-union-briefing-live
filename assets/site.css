@@ -1,0 +1,1568 @@
+/* Lake Union Rowing Weather Briefing
+   ---------------------------------------------------------------------------
+   The colour tokens are carried over from the Salish Sea sibling deliberately,
+   not re-invented: these are read as a family, and a reader moving between them
+   should not have to relearn what an amber band means. Names are by MEANING, so
+   the dark block below only has to answer "what is a warning here" rather than
+   restate every rule.
+
+   What is NEW here, and not inherited: --chart-* . The sibling's charts are
+   matplotlib PNGs, which cannot be themed at all. This page draws its charts in
+   the browser, so every chart colour has to exist as a token with a real dark
+   variant — a pale grey spread band that reads fine on white goes nearly
+   invisible on near-black. */
+:root{
+  --ink:#16202a; --ink-2:#41505e; --ink-3:#6b7a89;
+  --line:#dbe2e8; --line-2:#eef2f5;
+  --bg:#ffffff; --bg-2:#f6f8fa; --bg-3:#eef3f7;
+  --accent:#1f4e79; --accent-2:#a6350f;
+  --warn-bg:#fff4e5; --warn-line:#e0a355; --warn-ink:#7a4a10;
+  --alert-bg:#fdecea; --alert-line:#d9534f; --alert-ink:#8a2621;
+  --ok:#1a7a4c;
+  --on-accent:#ffffff;
+
+  /* Glance-strip states. Only a non-ok state takes colour — an "ok" tile stays
+     page-coloured so a normal day reads as a calm strip rather than as a wall
+     of green badges implying everything was affirmatively checked. */
+  --st-ok-line:var(--line);
+  --st-note-bg:#f2f7fb; --st-note-line:#b9d3e6; --st-note-ink:#33566e;
+  --st-watch-bg:#fef3c7; --st-watch-line:#fcd34d; --st-watch-ink:#92400e;
+  --st-alert-bg:#fecaca; --st-alert-line:#f87171; --st-alert-ink:#991b1b;
+  --st-unknown-ink:var(--ink-3);
+
+  /* Chart colours. Defined here rather than inline in charts.js for the same
+     reason the status palette is: inline values are places dark mode gets
+     forgotten. The JS reads these off the computed style at draw time. */
+  --chart-line:#1f4e79;      /* the central statistic */
+  --chart-band:#c7dcef;      /* the domain spread */
+  --chart-extreme:#a6350f;   /* max gust / max precip / min visibility */
+  --chart-grid:#e6ebf0;
+  --chart-axis:#6b7a89;
+  --chart-arrow:#1f4e79;
+  --chart-now:#a6350f;
+  /* Instability and convergence. CAPE warm, the cap cool-grey against it;
+     convergence blue for rising air and warm for sinking, which is the
+     convention every surface analysis a reader has seen already uses. */
+  --cape-ink:#b45309; --cin-ink:#475569;
+  --cz-conv:#1d4ed8; --cz-div:#b45309;
+  --chart-temp:#b45309; --chart-precip:#3b82f6; --chart-day:#94a3b8;
+  --chart-cloud:#64748b;
+
+  /* Map. Land is a warm neutral so water reads as water without either being a
+     saturated colour that would fight the domain overlays drawn on top. The two
+     domain hues are deliberately far apart, since telling them apart is the
+     map's main job. */
+  --map-land:#f2efe9; --map-water:#c6dcea; --map-shore:#9dbccf;
+  --dom-lu:#1f4e79; --dom-ub:#a6350f; --dom-lw:#0f766e; --dom-both:#6b21a8;
+  --grid-line:#7d8b99; --grid-near:#6b21a8;
+  --mk-launch:#166534; --mk-forecast:#7c3aed; --mk-station:#0f172a;
+  --refc-bg:#0d1620; --refc-coast:#7fa8c8;
+ --chart-watch:#b45309; --chart-pressure:#6d28d9; --chart-sun:#c2761b;
+ --uv-low:#3ea72d; --uv-mod:#fff300; --uv-high:#f18b00; --uv-vhigh:#e53210; --uv-extreme:#b567a4;
+
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --scrim:rgba(255,255,255,.96);
+  --shadow:rgba(0,0,0,.18);
+}
+
+*{box-sizing:border-box}
+/* Text autosizing OFF.
+   
+   iOS Safari inflates text it judges too small for the column it sits in —
+   its own accessibility behaviour, on by default, and one no desktop engine
+   performs. That is exactly what these matrices are: 8 px type in a 12 px
+   column, deliberately, because 22 hours have to share a phone's width and
+   the reader pinches to read a value. Safari sees a case to rescue and makes
+   the type bigger, and the columns it is sized to fit then overflow.
+
+   Which is why this page measured as fitting in every check and did not fit
+   on the device: the browser those checks ran in does not do this. The page
+   is responsive and sizes its own type from the viewport; it does not want a
+   second opinion. */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 22px 80px}
+a{color:var(--accent)}
+h1,h2,h3,h4{line-height:1.25;margin:0 0 .4em}
+h1{font-size:1.85rem;letter-spacing:-.01em}
+h2{font-size:1.32rem;margin-top:2.6rem;padding-bottom:.35rem;border-bottom:2px solid var(--line);
+  scroll-margin-top:68px}   /* the jump nav is sticky; without this it covers the heading */
+h3{font-size:1.06rem;margin-top:1.6rem}
+h4{font-size:.95rem;margin-top:1.1rem;color:var(--ink-2)}
+p{margin:.5em 0}
+.muted{color:var(--ink-2);font-size:.9rem}
+.na{color:var(--ink-3)}
+code{font-family:var(--mono);font-size:.88em;background:var(--bg-2);padding:1px 4px;border-radius:3px}
+
+/* masthead */
+.masthead{background:var(--bg-3);border-bottom:1px solid var(--line);padding:22px 0 18px}
+.masthead .wrap{padding-bottom:0}
+.masthead h1{margin-bottom:.15em}
+/* Named `lede`, not `sub`. As `.sub` it also matched the `.tabs.sub` nested tab
+   container below, and quietly imposed its max-width:70ch on the meteogram
+   charts — which then rendered at 663px inside an 1136px column and looked like
+   a chart-sizing bug rather than a CSS collision. A single-purpose class gets a
+   single-purpose name. */
+.lede{color:var(--ink-2);font-size:.94rem;margin:0;max-width:70ch}
+.times{margin-top:14px;border-collapse:collapse;font-size:.86rem;font-family:var(--mono)}
+.times td,.times th{border:1px solid var(--line);padding:4px 10px;text-align:left}
+.times th{background:var(--bg-2);font-weight:600}
+/* A repeated row label — a second HRRR cycle under the first. Hidden rather
+   than absent, so the wide table looks exactly as it did (one label over a
+   group of cycles) while the stacked layout can still head every card. */
+@media (min-width:761px){ .times th.times-cont{visibility:hidden} }
+/* On a phone this squeezed into the column it was given by wrapping every cell,
+   so "Report generated" broke across two lines and a timestamp broke away from
+   its zone. The label and the time are short and must stay whole; only the
+   description column, which is prose, is allowed to wrap. The table then sizes
+   to its content and scrolls inside its wrapper like every other wide table
+   here, instead of compressing into an unreadable block. */
+.times{width:100%;min-width:0}
+.times th,.times td:first-of-type{white-space:nowrap}
+/* width:max-content would otherwise stretch the description column to its
+   longest sentence and make the table 1016 px wide — scrollable, but a long
+   way to drag to read one row. Capped, so that column alone goes back to
+   wrapping and the table settles near the width of the two fixed columns. */
+.times td:last-of-type{max-width:24ch;white-space:normal}
+.upd{margin-top:12px}
+
+/* The epigraph. Quiet on purpose: it is the friendly note at the top of a page
+   whose actual job is telling someone whether it is safe to go out, so it must
+   read as a grace note and never compete with the alert bands below it. Left
+   rule rather than big quotation marks — the same restraint the rest of the
+   page uses. */
+.epigraph{margin:16px 0 4px;padding:2px 0 2px 14px;border-left:3px solid var(--accent);
+  max-width:64ch}
+.epigraph blockquote{margin:0;font-size:1.02rem;line-height:1.45;font-style:italic;
+  color:var(--ink)}
+.epigraph blockquote::before{content:"\201C"}
+.epigraph blockquote::after{content:"\201D"}
+.epigraph figcaption{margin-top:5px;font-size:.8rem;color:var(--ink-3);
+  display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
+.epigraph .who{font-weight:650;color:var(--ink-2)}
+/* "attributed to" is a real claim about certainty, not a hedge, so it is
+   legible rather than tucked away in a tooltip. */
+.epigraph .attrib{font-style:italic}
+.epigraph .role::before,.epigraph .qsource::before{content:"· "}
+.epigraph .qsource{font-style:italic}
+
+/* notices */
+.notice{border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn-ink);
+  padding:10px 14px;border-radius:5px;font-size:.9rem;margin:14px 0}
+.notice.caption{font-size:.86rem}
+/* Placeholder band. Intentionally the loudest thing on the page: a fake number
+   that reads as real is the one failure mode worth being ugly about here. */
+.fake{border:1px solid var(--alert-line);background:var(--alert-bg);color:var(--alert-ink);
+  padding:10px 14px;border-radius:5px;font-size:.88rem;margin:14px 0;
+  border-left:5px solid var(--alert-line)}
+
+/* alerts list */
+.alerts{border:1px solid var(--alert-line);background:var(--alert-bg);color:var(--alert-ink);
+  border-radius:6px;padding:12px 16px;margin:14px 0}
+.alerts ul{margin:.4em 0 0;padding-left:1.1em}
+.lv-tag{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.03em;
+  text-transform:uppercase;border:1px solid currentColor;border-radius:3px;
+  padding:0 5px;margin-right:.4em}
+
+/* jump list + preferences */
+.jump{position:sticky;top:0;z-index:20;background:var(--scrim);
+  border-bottom:1px solid var(--line);padding:8px 0;margin-bottom:10px;
+  backdrop-filter:saturate(180%) blur(6px)}
+.jump .wrap{padding-bottom:0;display:flex;flex-wrap:wrap;align-items:center;
+  justify-content:space-between;gap:8px 16px}
+.jump-links{display:flex;flex-wrap:nowrap;gap:6px 14px;overflow-x:auto;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none}
+.jump-links::-webkit-scrollbar{display:none}
+/* The Sections button is inserted into the DOM once and then shown or hidden
+   by width. Its styling lives in the mobile block, so without this it kept its
+   default button appearance on a desktop — a stray control beside sixteen
+   links it was meant to replace. Hidden here, revealed there. */
+.jump-menu{display:none}
+.jump a{font-size:.83rem;text-decoration:none;color:var(--ink-2);white-space:nowrap}
+.jump a:hover{color:var(--accent);text-decoration:underline}
+.jump-prefs{display:flex;gap:8px;align-items:center;flex:0 0 auto}
+.segmented{display:inline-flex;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+.segmented button{font:inherit;font-size:.76rem;padding:3px 9px;border:0;
+  background:var(--bg);color:var(--ink-3);cursor:pointer}
+.segmented button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.themetoggle{font:inherit;font-size:.78rem;padding:4px 10px;border:1px solid var(--line);
+  border-radius:5px;background:var(--bg);color:var(--ink-2);cursor:pointer}
+.themetoggle:hover{color:var(--ink);background:var(--bg-3)}
+/* No pressed COLOUR on Compact/Full, deliberately.
+   It is a two-state button that names the action, exactly like the theme
+   toggle beside it — and that one says which state you are in by reading
+   "Dark" or "Light" and nothing else. Two buttons doing the same job should
+   say so the same way; filling one and not the other implies a difference
+   between them that is not there.
+   The segmented controls ARE filled, because they are a choice among options
+   and the fill marks which of the two is selected. That is a different thing
+   from a button that flips. aria-pressed stays either way, for screen
+   readers, which have no colour to lose. */
+
+/* the standing source-link affordance, identical everywhere */
+.src{font-size:.76rem;font-weight:400;color:var(--ink-3);text-decoration:none;
+  margin-left:.5em;white-space:nowrap}
+.src:hover{color:var(--accent)}
+.src::after{content:"↗";font-size:.72rem;margin-left:.18em;opacity:.75}
+
+/* glance strip */
+.glance{display:grid;gap:10px;margin:14px 0 6px;
+  grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
+.tile{border:1px solid var(--st-ok-line);border-radius:6px;padding:10px 12px;background:var(--bg)}
+.tile-label{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-3)}
+.tile-value{font-size:1.4rem;font-weight:650;line-height:1.2;margin-top:2px;
+  /* Most tiles hold "12 mph". A few hold a whole clause, and "thunderstorms"
+     is wider than a 148px column at 1.4rem — it broke the box rather than the
+     line. Wrapping is the floor, not the fix: a long clause at headline size
+     is a wall of text where the reader wants a glance. */
+  overflow-wrap:break-word;hyphens:auto}
+/* Sized by how much there is to say. Two steps rather than a continuum,
+   because the tiles sit in a grid and a different size per tile would make the
+   strip look broken rather than responsive. */
+.tile-value.tile-prose{font-size:1.05rem;font-weight:600;line-height:1.25}
+.tile-value.tile-prose-xl{font-size:.92rem;font-weight:600;line-height:1.3}
+.tile-unit{font-size:.62em;font-weight:500;color:var(--ink-3);margin-left:.2em}
+.tile-sub{font-size:.76rem;color:var(--ink-3);margin-top:3px}
+/* A light flag, deliberately quieter than a watch. Lightning is the one hazard
+   here with no partial response available to a crew in a shell, so a trace in
+   the model — or a mention in the forecasters' own prose — should be visible
+   rather than indistinguishable from a clear sky. It must not look like amber
+   either: a trace that read as a watch would train a reader to ignore amber. */
+.tile.st-note{background:var(--st-note-bg);border-color:var(--st-note-line);color:var(--st-note-ink)}
+.tile.st-watch{background:var(--st-watch-bg);border-color:var(--st-watch-line);color:var(--st-watch-ink)}
+.tile.st-alert{background:var(--st-alert-bg);border-color:var(--st-alert-line);color:var(--st-alert-ink)}
+.tile.st-note .tile-label,.tile.st-note .tile-sub,
+.tile.st-watch .tile-label,.tile.st-watch .tile-sub,
+.tile.st-alert .tile-label,.tile.st-alert .tile-sub{color:inherit;opacity:.8}
+.tile.st-unknown .tile-value{color:var(--st-unknown-ink);font-weight:500;font-size:1.05rem}
+/* A tile whose source section is still a placeholder. The strip is composed
+   from the sections below it, so it can be genuinely mixed — a real light
+   window next to an invented wind speed. Marked per tile rather than per strip,
+   because a single band for the whole strip would be wrong in both directions
+   at once: it would disown the real tiles and, once most tiles are real, stop
+   appearing at all while a few invented ones remained. */
+.tile.tile-fake{border-style:dashed;opacity:.72}
+.fake-mark{display:inline-block;margin-left:.45em;padding:0 4px;border-radius:3px;
+  font-size:.6rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
+  background:var(--alert-bg);color:var(--alert-ink);border:1px solid var(--alert-line)}
+
+/* wide tables: horizontal scroll, sticky first column.
+   NOTE: no sticky `top` on any header inside .tablewrap. overflow-x:auto makes
+   the wrapper the sticky containing block, so `top` does not pin to the
+   viewport — it pushes the header row down inside the box instead. The standing
+   rule is horizontal scroll with a sticky FIRST COLUMN, which is what this is. */
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;margin:12px 0;
+  position:relative}
+table.grid{border-collapse:separate;border-spacing:0;font-size:.85rem;width:max-content;min-width:100%}
+table.grid th,table.grid td{border-bottom:1px solid var(--line-2);
+  border-right:1px solid var(--line-2);padding:7px 11px;text-align:left;vertical-align:top}
+table.grid thead th{background:var(--bg-2);font-weight:650;font-size:.79rem;white-space:nowrap}
+table.grid tbody th.rowhead{position:sticky;left:0;z-index:1;background:var(--bg);
+  border-right:2px solid var(--line);font-weight:600;min-width:150px}
+table.grid thead th:first-child{position:sticky;left:0;z-index:3;background:var(--bg-2)}
+table.grid tbody tr:last-child th,table.grid tbody tr:last-child td{border-bottom:0}
+/* The one thing that must NOT wrap: a wind value split across two lines
+   ("4.5 kt from 215" -> "4.5 kt" / "from 215") is unreadable at a glance. */
+.cell-wind{font-family:var(--mono);font-size:.82rem;white-space:nowrap;display:block}
+.cell-sub{color:var(--ink-3);font-size:.74rem;display:block;font-weight:400}
+table.sun td.decide{font-weight:650;color:var(--accent)}
+
+/* collapsed text products */
+.disc{border:1px solid var(--line);border-radius:6px;margin:12px 0;background:var(--bg)}
+.disc>summary{padding:10px 14px;cursor:pointer;font-weight:600;font-size:.94rem}
+.disc[open]>summary{border-bottom:1px solid var(--line-2)}
+.disc>*:not(summary){padding-left:14px;padding-right:14px}
+/* The orientation map's own disclosure. Its summary wraps to two lines on a
+   phone, and the figure inside carries its own margins, so the generic
+   padding would double up. */
+.mapdisc>summary{font-weight:600;line-height:1.35}
+.mapdisc>*:not(summary){padding-left:0;padding-right:0}
+.mapdisc[open]{padding:0 14px 14px}
+.prod{font-family:var(--mono);font-size:.8rem;line-height:1.5;white-space:pre-wrap;
+  background:var(--bg-2);border:1px solid var(--line-2);border-radius:4px;padding:10px 12px;
+  overflow-x:auto}
+
+/* tabs — two levels deep, so the sub-strip is visually subordinate rather than
+   a second peer row the reader has to work out the relationship of. */
+.tabs{margin:14px 0}
+.tabstrip{display:flex;gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  border-bottom:2px solid var(--line);scrollbar-width:none}
+.tabstrip::-webkit-scrollbar{display:none}
+.tabstrip button{font:inherit;font-size:.88rem;padding:7px 14px;border:0;background:none;
+  color:var(--ink-2);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;
+  margin-bottom:-2px}
+.tabstrip button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);
+  font-weight:650}
+.tabs.nested .tabstrip{border-bottom-width:1px}
+.tabs.nested .tabstrip button{font-size:.82rem;padding:5px 11px}
+.tabpanel{padding-top:12px}
+.tabpanel[hidden]{display:none}
+
+/* charts */
+.chart{margin:16px 0;padding:0}
+.chart figcaption{font-size:.86rem;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+/* One number, not a chart. §10's water temperature is a single reading from a
+   buoy in another lake — a trend line through three points a day was drawing a
+   shape the data does not support, and the number was the whole content. */
+.bignum{display:flex;align-items:baseline;gap:.7rem;margin:1.1rem 0 .3rem}
+.bignum-label{font-size:.82rem;letter-spacing:.02em;text-transform:uppercase;
+  color:var(--ink-2)}
+.bignum strong{font-size:2.1rem;font-weight:600;line-height:1;color:var(--ink);
+  font-variant-numeric:tabular-nums}
+
+.chart-host{border:1px solid var(--line);border-radius:6px;background:var(--bg);padding:6px;
+  position:relative}
+.chart-host svg{display:block;width:100%;height:auto}
+
+/* The crosshair readout. Absolutely positioned and pointer-events:none so it
+   follows the pointer without ever being the thing under it — a box that can
+   take the pointer flickers as the cursor crosses its own edge. */
+.hov{position:absolute;top:4px;z-index:2;pointer-events:none;
+  background:var(--bg-2);border:1px solid var(--line);border-radius:5px;
+  padding:5px 8px;font-size:.75rem;line-height:1.5;color:var(--ink-2);
+  white-space:nowrap;box-shadow:0 2px 10px rgb(0 0 0 / .3)}
+.hov b{display:block;color:var(--ink);font-weight:650;margin-bottom:2px}
+.hov span{display:block}
+.hov em{font-style:normal;color:var(--ink);font-variant-numeric:tabular-nums}
+.hov i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px}
+/* A readout that is one sentence rather than a column of values. It gets
+   normal paragraph setting: left-aligned and wrapping, because the
+   right-aligned narrow column that makes numbers scannable is the one
+   alignment prose should never have. */
+.hov .hov-prose{margin:0;white-space:normal;color:var(--ink);line-height:1.4}
+.chart-empty{color:var(--ink-3);font-size:.86rem;padding:28px 12px;text-align:center}
+
+/* ---------------------------------------------------------------------------
+   Orientation map. Plain inline SVG with CSS-variable colours rather than a
+   JS-drawn chart: nothing on it changes with the reader's unit or time
+   preference, so it needs no redraw — and this way dark mode comes free. */
+.mapfig{margin:14px 0}
+.map{display:block;width:100%;height:auto;border:1px solid var(--line);border-radius:6px;
+  background:var(--map-land)}
+.map-water path{fill:var(--map-water);stroke:var(--map-shore);stroke-width:1}
+.map-shoreline path{fill:none;stroke:var(--map-shore);stroke-width:1.4;opacity:.9}
+
+/* The HRRR grid. Cells nobody samples are a bare hairline; a sampled cell takes
+   its domain's colour. A cell claimed by BOTH gets its own hue rather than a
+   blend — the two domains overlapping used to just darken into a muddy third
+   colour that read as an accident, when in fact it is a real and interesting
+   fact about the Montlake Cut and deserves to be named in the legend. */
+.map-hrrr .hc{fill:none;stroke:var(--grid-line);stroke-width:.8;opacity:.55}
+.map-hrrr .hc-lake_union{stroke:var(--dom-lu);stroke-width:1.6;fill:var(--dom-lu);
+  fill-opacity:.10;opacity:1}
+.map-hrrr .hc-union_bay{stroke:var(--dom-ub);stroke-width:1.6;fill:var(--dom-ub);
+  fill-opacity:.10;opacity:1}
+.map-hrrr .hc-lake_washington{stroke:var(--dom-lw);stroke-width:1.6;fill:var(--dom-lw);
+  fill-opacity:.10;opacity:1}
+.map-hrrr .hc-shared{stroke:var(--dom-both);stroke-width:2;fill:var(--dom-both);
+  fill-opacity:.16;opacity:1;stroke-dasharray:6 3}
+.map-hrrr .hc-dot{stroke:none}
+.map-hrrr circle.hc-lake_union{fill:var(--dom-lu)}
+.map-hrrr circle.hc-union_bay{fill:var(--dom-ub)}
+.map-hrrr circle.hc-lake_washington{fill:var(--dom-lw)}
+.map-hrrr circle.hc-shared{fill:var(--dom-both)}
+/* The domains sit OVER the water, filled faintly and outlined firmly. The fill
+   has to stay light enough that the shoreline reads THROUGH it — the whole
+   point is seeing how much land each domain contains, which a solid fill would
+   hide just as effectively as not drawing the water at all. */
+/* Stroked, not filled: the domain IS the stroke. Round caps and joins matter
+   geometrically, not cosmetically — a butt cap would stop the domain dead at
+   the Ballard Locks instead of rounding past it, and a miter join would throw a
+   spike out across Fremont at every bend in the channel. */
+.map-domains .dom path{fill:none;stroke-linecap:round;stroke-linejoin:round;opacity:.30}
+.dom-lake_union path{stroke:var(--dom-lu)}
+.dom-union_bay path{stroke:var(--dom-ub)}
+.dom-lake_washington path{stroke:var(--dom-lw)}
+.map-markers .mk-launch circle{fill:var(--mk-launch)}
+.map-markers .mk-launch .mk-halo{fill:var(--mk-launch);fill-opacity:.22}
+.map-markers .mk-forecast path{stroke:var(--mk-forecast);stroke-width:2.4;stroke-linecap:round}
+.map-markers .mk-station rect{fill:var(--mk-station);stroke:var(--map-land);stroke-width:1}
+.map-scale line{stroke:var(--ink-2);stroke-width:1.5}
+.map-scale text{fill:var(--ink-2);font-size:13px;text-anchor:middle;font-family:var(--sans)}
+.mapfig figcaption{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:8px;
+  font-size:.82rem;color:var(--ink-2)}
+/* The orientation map's legend swatches. Named `.mapkey`, not `.key`: as a
+   bare `.key` this rule also matched the twilight table's civil-twilight cells,
+   and inline-flex made them shrink-wrap out of the table's column layout — the
+   evening time slid left under the "Morning" heading and read as a stray extra
+   cell. Nothing in the markup was wrong; one generic class name was doing two
+   unrelated jobs, exactly as `.sub` once did for the charts and the tab strip. */
+.mapkey{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.sw{width:13px;height:13px;border-radius:3px;flex:0 0 auto}
+.sw-lu{background:var(--dom-lu);opacity:.5;border:2px solid var(--dom-lu)}
+.sw-ub{background:var(--dom-ub);opacity:.5;border:2px solid var(--dom-ub)}
+.sw-lw{background:var(--dom-lw);opacity:.5;border:2px solid var(--dom-lw)}
+.sw-launch{background:var(--mk-launch);border-radius:50%}
+.sw-fc{background:var(--mk-forecast);border-radius:50%}
+.sw-st{background:var(--mk-station);border-radius:2px;transform:rotate(45deg);width:11px;height:11px}
+.sw-grid{background:transparent;border:1px solid var(--grid-line)}
+.sw-shared{background:var(--dom-both);opacity:.5;border:2px dashed var(--dom-both)}
+
+/* image figures */
+.figs{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin:14px 0}
+.fig{margin:0}
+.fig img{width:100%;height:auto;border:1px solid var(--line);border-radius:5px;display:block}
+.fig figcaption{font-size:.84rem;color:var(--ink-2);margin-top:6px}
+.ph-img{border:1px dashed var(--line);border-radius:5px;background:var(--bg-2);color:var(--ink-3);
+  aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;font-size:.86rem}
+
+/* lists */
+.notes,.sources{font-size:.88rem;padding-left:1.15em;margin:10px 0}
+.notes li,.sources li{margin:.3em 0}
+
+footer{margin-top:3rem;padding-top:1.2rem;border-top:1px solid var(--line);font-size:.86rem;
+  color:var(--ink-2)}
+
+/* ---------------------------------------------------------------------------
+   Mobile. The two-level tab structure needs a deliberate collapse, not a hope
+   that it reflows: the wide tables and both tab strips scroll horizontally, and
+   a thumb gets no scrollbar cue the way a mouse does — hence the edge fade. */
+.tablewrap::after,.tabstrip::after{content:none}
+@media (max-width:760px){
+  body{font-size:15px}
+  .wrap{padding:0 14px 60px}
+  h1{font-size:1.45rem}
+  .glance{grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+  .tile-value{font-size:1.2rem}
+  .tile-value.tile-prose{font-size:.98rem}
+  .tile-value.tile-prose-xl{font-size:.88rem}
+  .figs{grid-template-columns:1fr}      /* charts single-column, full width, stacked */
+  /* Three segmented controls plus the theme button do not fit beside the jump
+     links at 375px — kept on one row they squeezed the links down to "Gla".
+     Two rows costs a little sticky height and makes both usable. */
+  .jump .wrap{flex-wrap:wrap;gap:6px 10px}
+  /* WRAP, do not scroll. Sixteen links are 897 px of content in a 347 px bar,
+     so scrolling put eleven of the sixteen sections somewhere a reader had to
+     drag 550 px sideways to find — which is to say, nowhere. Wrapping is the
+     no-JavaScript baseline and costs sticky height; the menu below buys that
+     height back for anyone whose browser runs the script. */
+  .jump-links{flex:1 1 100%;min-width:0;order:1;flex-wrap:wrap;overflow-x:visible;
+    gap:2px 12px;font-size:.82rem}
+
+  /* Collapsed behind a button, once the script has added one. The sticky bar
+     then keeps only what a reader touches WHILE reading — units, clock, theme,
+     compact — and the sixteen destinations are one tap away, all visible at
+     once instead of eleven of them off the side. */
+  /* Order 3 once there is a button: a menu that opens upwards, above the
+     control that opened it, reads as something that appeared by accident. */
+  .jump.has-menu .jump-links{display:none;order:3}
+  .jump.has-menu.menu-open .jump-links{display:flex;order:3;padding-top:2px}
+  .jump-menu{display:inline-block;font:inherit;font-size:.78rem;padding:4px 10px;order:0;
+    border:1px solid var(--line);border-radius:5px;background:var(--bg-2);
+    color:var(--ink-2);cursor:pointer;flex:0 0 auto}
+  /* No fill when open. Every button on this bar that FLIPS between two states
+     says so in words or in a mark, never in colour — the theme toggle reads
+     "Dark" or "Light", Compact reads "Compact" or "Full", and this one turns
+     its caret over and puts a panel of sixteen links on the screen. Colour on
+     this bar means "this is the selected one of these options", which is the
+     segmented controls' job and not a flip button's. */
+  .jump-menu::after{content:' \25BE'}
+  .jump-menu[aria-expanded="true"]::after{content:' \25B4'}
+  /* WRAP here too. This row was 354 px of controls in a 347 px bar, so it
+     scrolled by seven pixels — just enough to hide the edge of the last
+     button and nothing like enough to be worth a sideways drag. Wrapped, the
+     controls and the Sections button settle onto two rows that each fit, and
+     nothing in this header scrolls sideways at all. */
+  .jump-prefs{flex:1 1 100%;order:2;justify-content:flex-start;
+    flex-wrap:wrap;overflow-x:visible;gap:6px}
+  /* The row already scrolls; without this the flex children shrink to fit
+     instead, which does not drop a control — it squeezes each one until its
+     own label wraps, so "mph | kt" renders as "mph | k" and the toggle still
+     works but cannot be read. Adding the Compact button is what pushed the row
+     past the width where that starts. */
+  .jump-prefs > *{flex:0 0 auto}
+  .segmented button{padding:3px 8px}
+
+  /* The sticky first column has to leave room for the table behind it.
+     On the stations table its content is a station name, an id, a network and
+     a distance, and with only a min-width to go on it grew to 455px inside a
+     345px box — wider than the phone. It covered the whole viewport, so
+     scrolling sideways slid every data column underneath it and the reader
+     could never reach one. Capped and allowed to wrap, it keeps its job
+     (naming the row you are reading across) without taking the row with it. */
+  table.grid tbody th.rowhead,
+  table.grid thead th:first-child{min-width:0;max-width:38vw;white-space:normal;
+    overflow-wrap:break-word}
+  /* The nav is two rows here, so an anchor jump lands with the heading tucked
+     underneath it unless the scroll margin grows to match. */
+  h2{scroll-margin-top:88px}
+  /* The edge fade is the "there is more to the right" cue a scrollbar would
+     give on desktop. Applied to the scroll CONTAINER's parent so it does not
+     scroll away with the content. */
+  .tablewrap{background:
+    linear-gradient(to right,var(--bg) 30%,transparent),
+    linear-gradient(to left,var(--bg) 30%,transparent) 100% 0,
+    radial-gradient(farthest-side at 0 50%,var(--shadow),transparent),
+    radial-gradient(farthest-side at 100% 50%,var(--shadow),transparent) 100% 0;
+    background-repeat:no-repeat;background-size:44px 100%,44px 100%,14px 100%,14px 100%;
+    background-attachment:local,local,scroll,scroll}
+}
+
+/* ---------------------------------------------------------------------------
+   Dark mode. Three states, and all three have to be handled: an explicit choice
+   stamps data-theme on <html> and must win in BOTH directions, while the
+   default "system" setting stamps nothing and is decided by prefers-color-scheme.
+   So the dark tokens are declared twice — once under the media query guarded
+   against an explicit light choice, once under the explicit dark attribute.
+   Every value below is a token already defined in :root, so no rule needs
+   touching.
+
+   The chart tokens are not simply darkened: on a dark ground the pale spread
+   band would read as brighter than the page and pull the eye away from the line
+   it is supposed to sit behind, so it becomes a deep low-contrast fill instead
+   while keeping the same figure/ground ordering. */
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ink:#e5eaf0; --ink-2:#b3c0cd; --ink-3:#8493a3;
+    --line:#2b3947; --line-2:#222e3a;
+    --bg:#0f1720; --bg-2:#16202b; --bg-3:#1c2733;
+    --accent:#6fb3e8; --accent-2:#f08b5f;
+    --warn-bg:#3a2a12; --warn-line:#8a6524; --warn-ink:#f0c98a;
+    --alert-bg:#3a1b19; --alert-line:#a34a45; --alert-ink:#f5b3ae;
+    --ok:#4ec48a;
+    --on-accent:#0f1720;
+    --st-note-bg:#16242e; --st-note-line:#2f4a5c; --st-note-ink:#a7c6da;
+    --st-watch-bg:#3d2f0e; --st-watch-line:#8a6d21; --st-watch-ink:#f2d08a;
+    --st-alert-bg:#4d1d1d; --st-alert-line:#a34848; --st-alert-ink:#f7b0b0;
+    --chart-line:#6fb3e8; --chart-band:#22384b; --chart-extreme:#f08b5f;
+    --chart-grid:#233040; --chart-axis:#8493a3; --chart-arrow:#6fb3e8;
+    --chart-now:#f08b5f;
+    --cape-ink:#fbbf24; --cin-ink:#94a3b8;
+    --cz-conv:#60a5fa; --cz-div:#fbbf24;
+    --chart-temp:#fbbf24; --chart-precip:#60a5fa; --chart-day:#64748b;
+    --chart-cloud:#94a3b8;
+    --map-land:#141c25; --map-water:#274a63; --map-shore:#5b8ba6;
+    --dom-lu:#6fb3e8; --dom-ub:#f08b5f; --dom-lw:#5eead4; --dom-both:#c4a2f0;
+    --grid-line:#5f7385; --grid-near:#c4a2f0;
+    --mk-launch:#4ec48a; --mk-forecast:#b794f6; --mk-station:#e5eaf0;
+    --refc-bg:#0d1620; --refc-coast:#7fa8c8;
+   --chart-watch:#e0a458; --chart-pressure:#b794f6; --chart-sun:#e8b06a;
+   --uv-low:#3ea72d; --uv-mod:#fff300; --uv-high:#f18b00; --uv-vhigh:#e53210; --uv-extreme:#b567a4;
+    --scrim:rgba(15,23,32,.96); --shadow:rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --ink:#e5eaf0; --ink-2:#b3c0cd; --ink-3:#8493a3;
+  --line:#2b3947; --line-2:#222e3a;
+  --bg:#0f1720; --bg-2:#16202b; --bg-3:#1c2733;
+  --accent:#6fb3e8; --accent-2:#f08b5f;
+  --warn-bg:#3a2a12; --warn-line:#8a6524; --warn-ink:#f0c98a;
+  --alert-bg:#3a1b19; --alert-line:#a34a45; --alert-ink:#f5b3ae;
+  --ok:#4ec48a;
+  --on-accent:#0f1720;
+  --st-note-bg:#16242e; --st-note-line:#2f4a5c; --st-note-ink:#a7c6da;
+  --st-watch-bg:#3d2f0e; --st-watch-line:#8a6d21; --st-watch-ink:#f2d08a;
+  --st-alert-bg:#4d1d1d; --st-alert-line:#a34848; --st-alert-ink:#f7b0b0;
+  --chart-line:#6fb3e8; --chart-band:#22384b; --chart-extreme:#f08b5f;
+  --chart-grid:#233040; --chart-axis:#8493a3; --chart-arrow:#6fb3e8;
+  --chart-now:#f08b5f;
+  --cape-ink:#fbbf24; --cin-ink:#94a3b8;
+  --cz-conv:#60a5fa; --cz-div:#fbbf24;
+  --chart-temp:#fbbf24; --chart-precip:#60a5fa; --chart-day:#64748b;
+  --chart-cloud:#94a3b8;
+  --map-land:#141c25; --map-water:#274a63; --map-shore:#5b8ba6;
+  --dom-lu:#6fb3e8; --dom-ub:#f08b5f; --dom-lw:#5eead4; --dom-both:#c4a2f0;
+  --grid-line:#5f7385; --grid-near:#c4a2f0;
+  --mk-launch:#4ec48a; --mk-forecast:#b794f6; --mk-station:#e5eaf0;
+  --refc-bg:#0d1620; --refc-coast:#7fa8c8;
+ --chart-watch:#e0a458; --chart-pressure:#b794f6; --chart-sun:#e8b06a;
+ --uv-low:#3ea72d; --uv-mod:#fff300; --uv-high:#f18b00; --uv-vhigh:#e53210; --uv-extreme:#b567a4;
+  --scrim:rgba(15,23,32,.96); --shadow:rgba(0,0,0,.5);
+}
+
+/* §8's radar and simulated-reflectivity frames are raster images with their own
+   fixed colour scheme — they cannot be themed the way CSS-driven content can,
+   and inverting them would produce a different map, which on a page used to
+   decide whether to go out is not an acceptable trade. Knocking their brightness
+   back a little settles them into a dark page WITHOUT altering the content. */
+:root[data-theme="dark"] .fig img{filter:brightness(.88) contrast(1.02)}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .fig img{filter:brightness(.88) contrast(1.02)}
+}
+
+/* Traffic cameras. Two columns at most — these are 320x240-ish frames and
+   blowing them up past their native size just makes the compression visible. */
+.figs.cams{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.cam-dom{font-size:.72rem;text-transform:uppercase;letter-spacing:.03em;color:var(--ink-3);
+  margin-left:.5em}
+/* A camera that fails to load is a normal condition, not an error worth a
+   broken-image icon: these are third-party feeds that go down for maintenance.
+   The note replaces the frame so the reader knows it is the CAMERA that is
+   missing, not the page that is broken. */
+.cam-down-note{display:none;border:1px dashed var(--line);border-radius:5px;
+  background:var(--bg-2);color:var(--ink-3);padding:22px 14px;font-size:.84rem;text-align:center}
+.cam.cam-down img{display:none}
+.cam.cam-down .cam-down-note{display:block}
+/* WSDOT frames are ~320x240 and SDOT's are 1280x720; left alone the grid rows
+   come out wildly uneven. A fixed 4:3 box with cover cropping makes them read
+   as one set without upscaling the small ones past their native resolution. */
+.cam img{aspect-ratio:4/3;object-fit:cover;background:var(--bg-2)}
+/* A camera whose agency prints no date on the frame. Flagged because neither
+   agency sends CORS headers, so the burned-in stamp is the ONLY staleness
+   signal available — and one of these was caught serving a maintenance card
+   with a 200 and a fresh Last-Modified, which no error handler can see. */
+.cam-nostamp{display:inline-block;margin-left:.4em;padding:0 5px;border-radius:3px;
+  font-size:.66rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
+  background:var(--warn-bg);color:var(--warn-ink);border:1px solid var(--warn-line)}
+/* A cell that overlaps a domain but whose centre falls outside, so it is NOT
+   sampled. Dotted and unfilled: visible enough to prompt the question "why is
+   that one excluded", faint enough not to read as part of the sampled set. */
+.map-hrrr .hc-near{stroke:var(--grid-near);stroke-width:1.6;stroke-dasharray:2 3;
+  fill:var(--grid-near);fill-opacity:.06;opacity:1}
+.sw-near{background:transparent;border:2px dotted var(--grid-near)}
+/* The control station. Dimmed because it is deliberately 9 km away and is there
+   to sanity-check the others, not to be read as conditions here — at full
+   weight it looks like just another reading of this water. */
+/* This table fits its column instead of scrolling, on a desktop too.
+   
+   table.grid is `width:max-content` so a wide table scrolls rather than
+   crushing its columns, which is right for most of them. Here the max-content
+   width is one CELL's prose — the "feels like" explanation, unwrapped — and
+   it pushed the table 93 px past the page, so the pressure column sat off the
+   edge of a 1280 px window. Allowed to share the width, the sentence wraps
+   into its own column and nothing else is squeezed: the station names still
+   get 255 px and the numbers keep more room than they need. */
+table.grid.stations{width:100%;min-width:0}
+
+table.stations tr.control{opacity:.62}
+table.stations tr.control th.rowhead::after{content:" · control";color:var(--ink-3);
+  font-weight:400;font-size:.74rem}
+/* A station reading the page carries but will not use: the UW rooftop's wind,
+   measured aloft on a building rather than on the water. Dimmed to sit below
+   the readings that are used, and tagged with the reason. Existing tokens only
+   — .lv-tag draws its border from currentColor, so this needs no new colour. */
+table.stations .not-rep{color:var(--ink-3)}
+
+/* Tempest station links. Deliberately NOT rows in the observations table: that
+   table means "readings this page uses", and every column would be empty. A
+   link list says what these are — somewhere else to look — without dressing
+   them up as data that is not here. Existing tokens only. */
+.tempest{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.tempest-st{display:block;flex:1 1 200px;border:1px solid var(--line);border-radius:5px;
+  padding:6px 9px;text-decoration:none;color:inherit}
+.tempest-st:hover{border-color:var(--ink-3)}
+
+/* Lightning domain diagram. Same construction as the reflectivity frames — an
+   indexed PNG under an SVG overlay — so the rings are true circles in the
+   image's own pixel space rather than an approximation in CSS. */
+.ltng{position:relative;width:100%;max-width:560px;border-radius:6px;overflow:hidden;
+  background:var(--refc-bg);border:1px solid var(--line)}
+.ltng-field{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated}
+.ltng-over{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.ltng-coast path{fill:none;stroke:var(--refc-coast);stroke-width:1.1;opacity:.75}
+.ltng-ring{fill:none;stroke:var(--chart-axis);stroke-width:1.2;stroke-dasharray:4 5;opacity:.55}
+.ltng-ring.on{stroke:var(--chart-now);stroke-width:2;stroke-dasharray:none;opacity:.95}
+.ltng-ringlab{fill:var(--chart-axis);font-size:11px;opacity:.7}
+.ltng-ringlab.on{fill:var(--chart-now);font-weight:700;opacity:1}
+.ltng-home{fill:var(--mk-launch);stroke:#fff;stroke-width:1.5}
+.ltng-legend{display:flex;flex-wrap:wrap;gap:.75rem;max-width:560px;margin:.45rem 0 .2rem;
+  font-size:.76rem;color:var(--ink-3)}
+.ltng-legend i{display:inline-block;width:11px;height:11px;border-radius:2px;
+  margin-right:.3rem;vertical-align:-1px}
+/* NOT .mapfig. That class only supplies a margin, and its figcaption is
+   display:flex — right for the orientation map's row of legend swatches, and
+   wrong for a caption written as prose: flex blockifies every child, so the
+   <time> and <strong> in this sentence each took their own line. The radar and
+   reflectivity captions borrow .mapfig and get away with it only because their
+   captions contain no inline elements at all. */
+.ltngfig{margin:14px 0}
+/* The caption flows to the column, like every other caption here.
+   It was capped at the map's own 560px, which put a narrow ragged block
+   directly above a full-width paragraph — the short lines read as hard breaks
+   rather than as wrapped prose. Measured against the rest of the page, this
+   was the only caption with a cap at all: the radar's, the meteograms' and
+   the reflectivity loop's all span the column. The image stays 560px; only
+   the words are free. */
+.ltngfig figcaption{display:block;margin-top:8px;
+  font-size:.82rem;color:var(--ink-2);line-height:1.5}
+
+/* The practice-window planner. Rows rather than a table: each one is a
+   label and a sentence, and the state class is the only colour in it —
+   deliberately, because the section shows inputs and must not read as a
+   verdict. */
+.plan{margin:12px 0 18px}
+.plan-pick{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;
+  padding:10px 12px;border:1px solid var(--line);border-radius:6px;background:var(--bg-2)}
+.plan-pick label{font-size:.85rem;color:var(--ink-2)}
+.plan-pick select,.plan-pick input{font:inherit;font-size:.9rem;padding:2px 6px;
+  border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.plan-lead{margin-left:auto;font-size:.82rem;color:var(--ink-3)}
+.plan-lead.plan-far{color:var(--warn-ink)}
+.plan-out{margin-top:10px;display:grid;gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.plan-row{display:flex;flex-wrap:wrap;gap:.3rem 1rem;background:var(--bg);padding:7px 12px}
+.plan-label{flex:0 0 12rem;font-weight:600;font-size:.88rem}
+.plan-body{flex:1 1 14rem;font-size:.9rem}
+.plan-sub{display:block;font-size:.78rem;color:var(--ink-3);font-weight:400}
+.plan-watch .plan-label{color:var(--warn-ink)}
+/* The same light flag the glance strip uses for a trace, so one signal
+   does not have two appearances on one page. */
+.plan-note .plan-label{color:var(--st-note-ink)}
+.plan-beyond{opacity:.55}
+.plan-beyond .plan-body{font-style:italic}
+/* No colour on an observation row, deliberately.
+   Colour here encodes SEVERITY — default, note, watch — and "this is an
+   observation rather than a forecast" is a KIND, not a severity. Tinting it
+   put a neutral category label in --ink-2 (#b3c0cd) next to a trace flag in
+   --st-note-ink (#a7c6da): a contrast ratio of 1.03 and six degrees of hue
+   apart, which is to say the same colour. The sub-line already says "an
+   observation, not a forecast" in words, which is the part a reader can act
+   on. */
+/* .plan-caveat, NOT .plan-note. Row states are generated as "plan-" + state by
+   planRow(), so ok / watch / note / beyond / obs are all reserved — and a
+   hand-written .plan-note{margin-top:8px} for the paragraph under the tool
+   also matched every trace row, putting an 8 px margin inside a grid whose
+   gap is 1 px. It read as a thick rule above the lightning row.
+   The same collision as .key matching the twilight cells, one file over. */
+.plan-caveat{margin-top:8px}
+@media (max-width:560px){.plan-label{flex-basis:100%}}
+
+/* The radar's controls, under the image rather than over it — see the template.
+   The age is the only place on this page that reports a THIRD party's data time
+   read live from an API, so it gets room to say what it is. */
+.radarbar{display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap;
+  max-width:600px;margin:.4rem 0 .2rem}
+.radar-age{font-size:.82rem;color:var(--ink-3)}
+.radar-age.stale{color:var(--warn-ink);font-weight:600}
+.radar-age.unknown{font-style:italic}
+
+/* ---------------------------------------------- §8 model variability
+   Six runs of one forecast. Nothing here introduces a colour token: the
+   sequential ramp is Viridis, defined once in charts.js and used identically
+   in both themes — that it survives light, dark, greyscale and the common
+   colour-vision deficiencies is most of why it was chosen over a red-green
+   "agreement" scale. Everything else borrows the page's existing tokens. */
+.runlist{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+/* --k is the run's index, set inline per chip so the list fades oldest-last in
+   the same direction the chart's lines do. Defaulted here so it is a defined
+   token like every other var reference on this page, and so a chip without the
+   inline value still renders at full opacity rather than transparent. */
+.runchip{--k:0;border:1px solid var(--line);border-radius:4px;padding:2px 8px;
+  font-size:.8rem;color:var(--ink-2);opacity:calc(1 - 0.09 * var(--k))}
+.runchip b{color:var(--ink)}
+
+.strip{display:flex;align-items:center;gap:.6rem;margin:4px 0}
+.strip-lab{flex:0 0 6.6rem;font-size:.8rem;color:var(--ink-2);text-align:right}
+/* Each strip states the range its own ramp covers, because the two strips
+   are scaled separately — sustained spread and gust spread differ by about
+   a factor of two here, and one ramp for both flattens sustained. */
+.strip-range{display:block;font-size:.68rem;color:var(--ink-3)}
+.strip-row{display:flex;flex:1 1 auto;gap:1px;min-width:0}
+.tick{flex:1 1 auto;height:16px;border-radius:2px;background:var(--line)}
+/* NOT a position on the ramp. An hour reached by one run has no spread to
+   measure, and painting it at the bottom of a sequential scale would render it
+   identically to six runs in perfect agreement — the most confident reading
+   this data allows, from the least evidence it can have. Hatched so it cannot
+   be mistaken for a value. */
+.tick-single{background:repeating-linear-gradient(45deg,var(--st-note-line) 0 3px,
+  var(--bg-2) 3px 6px)}
+.tick-none{background:var(--bg-3);opacity:.5}
+.strip-key{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem 1rem;
+  font-size:.76rem;color:var(--ink-3);margin:.5rem 0 0 6.1rem}
+.strip-ramp{display:inline-block;width:90px;height:10px;border-radius:2px}
+.strip-swatch{display:inline-flex;align-items:center;gap:.3rem}
+.strip-swatch .tick{flex:0 0 14px;height:12px}
+
+.spread-grid{margin:8px 0}
+.grid-title{font-size:.82rem;font-weight:600;color:var(--ink-2);margin:10px 0 4px;
+  display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+/* The heat map needs its own key: the strips are scaled by SPREAD and these
+   cells by MAGNITUDE, so one legend cannot serve both and an unlabelled ramp
+   is a rank rather than a reading. */
+.grid-key{display:inline-flex;align-items:center;gap:.35rem;font-weight:400;
+  font-size:.74rem;color:var(--ink-3)}
+.grid-tz{margin-left:auto;font-weight:400;font-size:.72rem;color:var(--ink-3)}
+/* Same overflow convention as every other wide table here, and the same
+   edge-fade the stylesheet already defines for .tablewrap. */
+.gridwrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;position:relative}
+/* Fits its column at every width, rather than scrolling above 760 px and
+   fitting below it. That breakpoint left a gap: a 768 px tablet in portrait got
+   neither the desktop's room nor the phone's fitting rules, and every one of
+   these tables ran off the side. Sharing the width is what they should have
+   been doing all along — 22 hour columns are equal by nature, and `fixed` is
+   what lets a declaration bring them under their content width. */
+table.spreadtab{border-collapse:separate;border-spacing:0;font-size:.78rem;
+  table-layout:fixed;width:100%;min-width:0;font-variant-numeric:tabular-nums}
+/* The run label's column, declared at every width for the same reason: under
+   `fixed` layout an undeclared first column takes 1/23 of the table and clips
+   "15:00" to "15:". */
+table.spreadtab th:first-child{width:clamp(2.6rem,13vw,5.4rem)}
+table.spreadtab th,table.spreadtab td{border-bottom:1px solid var(--line-2);
+  border-right:1px solid var(--line-2);padding:4px 7px;text-align:center;white-space:nowrap}
+/* Semibold, because the middle of a full-range sequential ramp is
+   mid-luminance and bottoms out near 4.1:1 against either ink. Weight buys
+   back the legibility the ramp cannot. */
+table.spreadtab tbody td{font-weight:600}
+table.spreadtab thead th{background:var(--bg-2);font-weight:600;color:var(--ink-2);
+  font-size:.74rem}
+/* The am/pm letter on an hour header. Smaller than the hour because it
+   qualifies it rather than counting, and because it is what a narrow column
+   clips first — losing exactly the character that tells morning from evening. */
+table.spreadtab thead th .mer{font-size:.78em;opacity:.75}
+table.spreadtab .runhead{text-align:right;background:var(--bg-2);font-weight:600;
+  position:sticky;left:0;z-index:1}
+/* Blank, not zero and not interpolated: this run does not reach this hour. The
+   absence is the sample-size story and needs no second encoding. */
+table.spreadtab .cell-out{background:var(--bg-3);opacity:.35}
+table.spreadtab tfoot th,table.spreadtab tfoot td{border-top:2px solid var(--line)}
+table.spreadtab .cell-single .tick{width:14px;height:12px;display:inline-block}
+.dirarrow{width:15px;height:15px;color:var(--chart-arrow);display:block;margin:0 auto}
+/* The alignment row shows the arrow AND the spread in degrees. Opacity is a
+   glance cue and cannot be read to a value; R clusters between 0.97 and 1.00
+   on real runs, which reads as "all the same" when the disagreement actually
+   ranges from 3 degrees to 18. */
+.align-sd{display:block;font-size:.66rem;color:var(--ink-3);margin-top:1px}
+
+.hov-spread{max-width:15rem}
+.hov-spread b{display:block;margin-top:.35rem;font-size:.74rem;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.03em}
+.hov-spread span{display:flex;justify-content:space-between;gap:.75rem}
+.hov-spread i{font-style:normal;color:var(--ink-3)}
+.hov-none{color:var(--ink-3);font-style:italic}
+@media (max-width:560px){.strip-lab{flex-basis:3.6rem}.strip-key{margin-left:0}}
+
+/* Marine-zone forecast periods. Each is one sentence-ish record, so they read
+   as a list rather than as prose — the label is the thing you scan for. */
+.periods{margin:8px 0}
+.periods .period{margin:.4em 0;font-size:.92rem}
+.periods .period b{color:var(--accent);font-weight:650}
+
+/* "from" on a wind column header. Small and unemphatic, but the page shows
+   directions in two places and they are 180 degrees apart on purpose: the
+   tables say where the wind comes FROM, because that is how a forecast is
+   spoken, and the chart arrows fly WITH it, as on every weather map. This
+   label is what keeps that from being a guess. */
+.th-note{font-weight:400;font-size:.72rem;color:var(--ink-3);text-transform:none}
+
+/* The three air-quality sources, one labelled row each. They are three
+   different KINDS of claim — an instrument reading, a human day forecast, and a
+   model — and running them together in one paragraph is what let a moderate
+   ozone reading be read as smoke on the water. The label column is the whole
+   point of the layout, so it is what does not collapse on a narrow screen.
+
+   Grid rather than flex: the labels align down the left across all three rows,
+   which is what makes them read as one comparison instead of three paragraphs
+   that happen to be adjacent. */
+.airsrc{margin:8px 0}
+.airrow{display:grid;grid-template-columns:8.5rem 1fr;gap:2px 12px;
+  padding:9px 0;border-top:1px solid var(--line)}
+.airrow:first-child{border-top:0}
+.airwhat{grid-row:span 2;font-size:.74rem;font-weight:650;text-transform:uppercase;
+  letter-spacing:.03em;color:var(--ink-3);padding-top:2px}
+.airval{font-size:.95rem}
+.airnote{font-size:.82rem;line-height:1.45}
+/* The verdict the three rows exist to make sayable, so it is the one thing
+   here with a weight of its own. */
+.airverdict{margin:10px 0 0;padding:9px 11px;border-radius:6px;
+  background:var(--bg-2);border:1px solid var(--line);font-size:.9rem}
+.airsrc-line{margin:6px 0 0}
+/* Under about 30rem the label column would leave the values a few characters
+   wide, so the labels move above their rows. They keep their weight and case,
+   which is what still marks them as labels once they are no longer a column. */
+@media (max-width:30rem){
+  .airrow{grid-template-columns:1fr}
+  .airwhat{grid-row:auto}
+}
+
+/* AirNow's multi-day AQI forecast. Coloured by EPA category rather than by a
+   continuous scale: the categories are what the public health guidance is
+   written against, so a reader deciding whether to keep a crew out is matching
+   a word, not reading a gradient. */
+.aqirow{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.aqiday{display:inline-flex;flex-direction:column;align-items:center;min-width:64px;
+  padding:5px 9px;border-radius:5px;font-size:.82rem;line-height:1.25;
+  border:1px solid var(--line);background:var(--bg-2)}
+.aqiday b{font-weight:650;font-size:.74rem;color:var(--ink-3)}
+.aqicat{font-size:.66rem;text-transform:uppercase;letter-spacing:.02em;opacity:.85}
+.aq-good{background:var(--bg-2);color:var(--ink-2)}
+.aq-moderate{background:var(--st-watch-bg);color:var(--st-watch-ink);border-color:var(--st-watch-line)}
+.aq-unhealthy-for-sensitive-groups,
+.aq-unhealthy,.aq-very-unhealthy,.aq-hazardous{
+  background:var(--st-alert-bg);color:var(--st-alert-ink);border-color:var(--st-alert-line)}
+
+/* Radar. The NWS product is a FINISHED map — geography, labels, colour scale
+   and timestamp already rendered — so unlike §5's basemap there is nothing for
+   this project to draw underneath it, and nothing to recolour: restyling a
+   reflectivity scale to match a theme would make the legend inside the image
+   wrong. It arrives on its own light ground and is left alone.
+
+   Capped at its native 600px (set inline, from the image's own width) because
+   an upscaled GIF looks soft, and softness on a radar frame reads as drizzle. */
+/* §8's simulated-reflectivity loop.
+   All eighteen frames are stacked and one is revealed at a time, rather than
+   swapping a single src: a src swap re-decodes on every step, which stutters on
+   the first pass through and flashes white between frames. Eighteen indexed
+   PNGs are about 35 KB together, so the whole loop costs less than one photo. */
+/* Capped at the same 600 px the KATX loop is, and for the same reason: full
+   column width made a square frame tall enough to push its own controls off the
+   screen, so you were scrubbing a loop you could not see. Its natural size is
+   624 px, so this is very nearly 1:1 — no upscaling, no smoothing. */
+.refc{position:relative;width:100%;max-width:600px;border-radius:6px;overflow:hidden;
+  border:1px solid var(--line);background:var(--refc-bg)}
+/* The UV curve. Bars rather than a line: the index is an integer category, and
+   a smooth line through 0,1,2,3 implies a precision it does not have. Colours
+   are the WHO/EPA scale, so they mean the same thing here as on any US
+   forecast — which is the entire value of using a standard scale. */
+.uvfig{margin:.9rem 0}
+/* Padding on the CHART, not the bars: the hour labels hang below the plot at a
+   negative offset, and the gridlines are positioned against the bars' own
+   height — so the room for the labels has to be reserved by the parent or they
+   land on top of the caption. */
+.uvchart{display:flex;max-width:600px;padding:1.1rem 0 1.5rem}
+/* The axis labels sit in their own gutter and are positioned from the BOTTOM,
+   so a tick at 6 lands on the gridline at 6 whatever the plot's height. */
+.uvaxis{position:relative;width:1.6rem;height:110px;flex:none}
+.uvtick{position:absolute;right:.35rem;transform:translateY(50%);
+  font-size:.66rem;color:var(--chart-axis);line-height:1}
+.uvunit{position:absolute;right:.35rem;top:-1.05rem;font-size:.66rem;
+  color:var(--chart-axis)}
+.uvplot{position:relative;flex:1;min-width:0}
+.uvgrid{position:absolute;left:0;right:0;height:1px;background:var(--chart-grid)}
+.uvbars{display:flex;align-items:flex-end;gap:2px;height:110px;
+  padding:0;position:relative}
+.uvbar{flex:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;
+  position:relative;min-width:0}
+.uvbar-fill{display:block;width:100%;border-radius:2px 2px 0 0;min-height:2px;
+  background:var(--uv-low)}
+.uv-3 .uvbar-fill,.uv-4 .uvbar-fill,.uv-5 .uvbar-fill{background:var(--uv-mod)}
+.uv-6 .uvbar-fill,.uv-7 .uvbar-fill{background:var(--uv-high)}
+.uv-8 .uvbar-fill,.uv-9 .uvbar-fill,.uv-10 .uvbar-fill{background:var(--uv-vhigh)}
+.uv-11 .uvbar-fill{background:var(--uv-extreme)}
+/* A zero hour still gets a sliver, so the axis reads as a row of hours with
+   nothing in them rather than as missing data. */
+.uv-0 .uvbar-fill{background:var(--line)}
+.uvbar-tick{position:absolute;bottom:-1.2rem;left:0;font-size:.62rem;
+  color:var(--chart-axis);white-space:nowrap}
+/* The hour the reader is actually in, marked client-side. */
+.uvbar.now .uvbar-fill{outline:2px solid var(--chart-now);outline-offset:1px}
+
+/* The marine badge. Sits above the glance strip because it is context for
+   everything below it, and is styled as a NOTE rather than as a tile: it is
+   about a different body of water, and anything that looked like a tile would
+   be read as a condition of this one. */
+.marinebadge{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .7rem;
+  margin:.6rem 0 .2rem;padding:.5rem .7rem;border-radius:6px;
+  border:1px solid var(--st-watch-line);background:var(--st-watch-bg);
+  font-size:.82rem}
+.mb-item{color:var(--st-watch-ink)}
+.mb-item.mb-severe,.mb-item.mb-extreme{color:var(--st-alert-ink)}
+.mb-where{color:var(--ink-2);font-size:.76rem;flex:1 1 100%}
+
+.tile-age{font-size:.7rem;color:var(--ink-3);margin-top:.15rem}
+/* The hours ahead, set apart from the observation above it by a rule: they are
+   different KINDS of number — one measured somewhere else a while ago, one
+   predicted for here — and a tile that ran them together would invite reading
+   the forecast as a reading. */
+.tile-outlook{margin-top:.35rem;padding-top:.3rem;border-top:1px solid var(--line);
+  font-size:.74rem;color:var(--ink-2);line-height:1.45}
+.tile-outlook-label{display:block;font-size:.66rem;color:var(--ink-3);
+  text-transform:uppercase;letter-spacing:.03em}
+.tile-outlook-body{color:var(--ink)}
+/* The twelve-hour shape in the wind badge. Sized in the tile rather than by
+   the drawing, which uses preserveAspectRatio:none so it stretches to whatever
+   width the tile has — the sparkline carries direction of travel, not
+   proportion, and the numbers beside it carry the magnitude.
+   No Compact rule needed: it lives inside .tile-outlook, which Compact hides
+   already, so the one-screenshot strip is unaffected. */
+.tile-spark{display:block;height:34px;margin:.25rem 0 .1rem}
+.tile-spark[hidden]{display:none}
+.tile-spark svg{display:block;width:100%;height:34px}
+/* The watch line. Quiet when the forecast stays under the threshold — it is
+   reassurance, and reassurance should not shout — and in the watch colour when
+   it does not. */
+/* Run-to-run agreement, under the watch line. Quieter than the watch: it is
+   context for the number above rather than a warning of its own. */
+.tile-agree{display:block;font-size:.74rem;color:var(--ink-3);margin-top:2px}
+.tile-agree a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.tile-watch{display:block;margin-top:.15rem;font-size:.72rem;color:var(--ink-3)}
+.tile-watch.on{color:var(--st-watch-ink);font-weight:600}
+
+/* A tile whose reading has outlived its own freshness limit. It keeps the
+   number — the last known wind, clearly marked four hours old, beats a dash,
+   and a dash would also read as "no sensor", which is a different and wronger
+   claim. What it loses is the right to look current: the value is demoted to
+   secondary ink and the tile says outright that it is past its limit. */
+.tile-stale .tile-value{color:var(--ink-3)}
+.tile-stale .tile-age{color:var(--st-watch-ink)}
+.tile-stale{border-color:var(--st-watch-line)}
+.tile-stale-note{font-size:.7rem;margin-top:.15rem;color:var(--st-watch-ink)}
+
+.refc-bar,.refc-legend,.refc-head{max-width:600px}
+/* The run time sits ABOVE the frame, where the radar panel puts its station
+   name. Every label inside the loop is a VALID time — which is in the future,
+   and so reads as freshness however old the run behind it is. */
+.refc-head{display:flex;align-items:baseline;gap:.75rem;margin-bottom:.4rem;
+  font-size:.85rem;color:var(--ink-2)}
+.refc-head strong{color:var(--ink)}
+.refc-head .muted{margin-left:auto}
+.refc-frame{position:absolute;inset:0;width:100%;height:100%;opacity:0}
+.refc-frame.on{opacity:1}
+/* Nearest-neighbour on purpose. The browser's default smoothing invents
+   gradients between the dBZ bands, which is exactly the false precision the
+   banding was chosen to deny — a 3 km model cell should look like a cell. */
+.refc-frame{image-rendering:pixelated}
+.refc-over{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.refc-coast path{fill:none;stroke:var(--refc-coast);stroke-width:1.1;opacity:.9}
+.refc-home{fill:var(--mk-launch);stroke:#fff;stroke-width:1.5}
+
+.refc-bar{display:flex;align-items:center;gap:.7rem;margin:.55rem 0 .35rem}
+.refc-play{font:inherit;font-size:.85rem;cursor:pointer;min-width:4.2rem;
+  padding:.2rem .6rem;border:1px solid var(--line);border-radius:5px;
+  background:var(--bg-2);color:var(--ink-2)}
+.refc-play:hover{color:var(--ink)}
+.refc-scrub{flex:1;min-width:6rem;accent-color:var(--accent)}
+.refc-now{font-size:.85rem;color:var(--ink);font-variant-numeric:tabular-nums;
+  min-width:9.5rem;text-align:right}
+
+.refc-legend{display:flex;flex-wrap:wrap;align-items:center;gap:.15rem .5rem;
+  font-size:.72rem;color:var(--ink-2);margin-bottom:.5rem}
+.refc-swatch{display:inline-flex;align-items:center;gap:3px}
+.refc-swatch i{display:inline-block;width:11px;height:11px;border-radius:2px}
+
+.radarhead{display:flex;align-items:center;gap:.75rem;margin-bottom:.4rem}
+.radarfig img.radarimg{display:block;width:100%;height:auto;border-radius:6px;
+  border:1px solid var(--line)}
+.radar-refresh{margin-left:auto;font:inherit;font-size:.85rem;cursor:pointer;
+  padding:.2rem .6rem;border:1px solid var(--line);border-radius:5px;
+  background:var(--bg-2);color:var(--ink-2)}
+.radar-refresh:hover{color:var(--ink)}
+/* Shown only once the image has failed twice — see wireRadar in charts.js. */
+.radar-out{display:none}
+.radar-down .radar-out{display:block;margin:0;padding:1rem;border-radius:6px;
+  background:var(--bg-2);color:var(--ink-2);font-size:.9rem}
+.radar-down img.radarimg{display:none}
+
+/* ======================================================================
+   COMPACT
+
+   One job: fit the glance strip, or the practice table, onto a single
+   phone screen so it can be screenshotted and sent to a crew. Off by
+   default at every width — a narrow viewport is not consent to be shown
+   less, and the forward-looking blocks this folds away are the reason
+   several of these tiles exist.
+
+   Nothing here deletes. Every folded block is one tap from returning,
+   which is why the expander is a real button and not a CSS pseudo-element.
+   ====================================================================== */
+
+/* Tiles PACK instead of stretching. The default grid makes every tile in a
+   row as tall as the tallest one in it, which on a phone means the water
+   tile inherits 200 px of empty box from the wind tile beside it — 180 px
+   of the saving here is that dead space alone, before anything is folded.
+   column-width rather than column-count so one rule serves a phone and a
+   desktop: 2 columns at 375 px, more when there is room. */
+.compact .glance{display:block;column-width:170px;column-gap:5px;margin:8px 0 4px}
+.compact .tile{break-inside:avoid;display:inline-block;width:100%;
+  margin:0 0 5px;padding:6px 8px}
+/* Measured on the live page: with a Small Craft Advisory badge above the strip
+   the last tile cleared the fold by about twenty pixels the wrong way. An
+   advisory is exactly when someone wants to send this to a crew, so the strip
+   has to survive one being there. */
+/* The strip is not the only thing above the fold. Between the heading and the
+   first tile sit the alert line and, on the days it matters most, a marine
+   advisory badge — 107 px of the two together at full size, which put the last
+   tile 28 px below the fold on a live measurement. Everything from the heading
+   to the last tile has to clear it, so all three are tightened, not just the
+   tiles. */
+.compact #glance{margin-bottom:4px}
+.compact #glance + .muted{font-size:.78rem;margin:4px 0;line-height:1.35}
+.compact .alertbox,.compact .marinebadge{margin:5px 0;padding:5px 9px;
+  font-size:.86rem;line-height:1.32}
+.compact .glance + *{margin-top:8px}
+.compact .tile-label{font-size:.7rem;letter-spacing:.03em}
+.compact .tile-value{font-size:1.15rem;line-height:1.15}
+.compact .tile-value.tile-prose{font-size:.92rem}
+.compact .tile-value.tile-prose-xl{font-size:.84rem}
+.compact .tile-sub{font-size:.72rem;margin-top:2px}
+.compact .tile-age{font-size:.66rem}
+/* The forward-looking blocks and the staleness caveat. These are the ones
+   worth a whole screen when you are deciding, and the ones in the way when
+   you are capturing what is true now. */
+.compact .tile-outlook,.compact .tile-stale-note{display:none}
+.compact .tile.open .tile-outlook,.compact .tile.open .tile-stale-note{display:block}
+
+/* Practice rows collapse to one line each: label, value, no note. */
+.compact .plan-row{padding:5px 10px;gap:.2rem .6rem;flex-wrap:nowrap;align-items:baseline}
+.compact .plan-label{flex:0 0 8.5rem;font-size:.78rem}
+.compact .plan-body{flex:1 1 auto;font-size:.82rem}
+.compact .plan-sub{display:none}
+.compact .plan-row.open .plan-sub{display:block;margin-top:2px}
+.compact .plan-pick{gap:.35rem .7rem;margin-bottom:2px}
+.compact .plan-pick label,.compact .plan-pick select,.compact .plan-pick input{font-size:.8rem}
+
+/* The expander. Hidden entirely outside compact, where nothing is folded —
+   an affordance that reveals nothing is worse than no affordance. */
+.tile-expand,.plan-expand{display:none}
+.compact .tile-expand,.compact .plan-expand{display:inline-block;
+  border:0;background:none;padding:0;margin-top:2px;cursor:pointer;
+  font:inherit;font-size:.7rem;color:var(--ink-3);text-align:left}
+.compact .plan-expand{margin:0 0 0 .3rem;font-size:.75rem}
+.tile-expand:hover,.plan-expand:hover{text-decoration:underline}
+.compact .tile.open .tile-expand::after,.compact .plan-row.open .plan-expand::after{content:' \25B4'}
+.compact .tile-expand::after,.compact .plan-expand::after{content:' \25B8'}
+
+/* ----------------------------------------------------------------------
+   Chart scrubbing on a touch screen.
+
+   The crosshair is a hover interaction, and a phone has no hover. Worse,
+   the two touch gestures that could stand in for one were both being
+   taken by the browser: press-and-hold raised the system callout over the
+   plot instead of reading the hour under the finger, and a drag along the
+   chart panned the page. touch-action and the callout suppression below
+   give those back.
+
+   Even freed, dragging on the plot hides the reading under the finger and
+   advertises nothing. So on a device without hover the chart also gets a
+   real slider beneath it — discoverable, out of the way of the panel, and
+   reachable by keyboard, which the crosshair never was.
+   ---------------------------------------------------------------------- */
+.chart-host{-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+.chart-host svg{-webkit-user-select:none;user-select:none}
+
+.chart-scrub{display:none;width:100%;margin:6px 0 0;accent-color:var(--accent)}
+/* Hover is the real question, not screen size: a tablet with a keyboard has
+   room for a wide chart and still cannot hover, and a narrow desktop window
+   can. */
+@media (hover:none) and (pointer:coarse){
+  .chart-scrub{display:block}
+  /* Comfortably thumb-sized. The default track is about 4 px tall and sits
+     inside a 20 px control, which on glass is a miss more often than a hit. */
+  .chart-scrub{height:28px}
+}
+
+/* The readout, on a device that cannot hover.
+   Floating over the plot, it covered more than half a 375 px chart — the
+   crosshair pointed at an hour the box was standing on. In normal flow it
+   sits between the chart and its slider, costs the panel nothing, and reads
+   as a caption for the hour the slider is parked on. */
+@media (hover:none) and (pointer:coarse){
+  /* STACKED, one field per line, value against the right edge.
+     It was a wrapping flex row, which had three problems at once: the
+     timestamp shared a line with the first reading, the fields packed one,
+     two or three to a line depending on how wide that hour's values happened
+     to be, and nothing lined up to scan. Because the packing changed with the
+     values, the box also resized as you dragged the slider.
+     A row per field is taller and does none of that. */
+  .chart-host .hov{position:static;margin:6px 0 0;max-width:none;display:block}
+  .chart-host .hov[hidden]{display:none}
+  .chart-host .hov b{display:block;margin:0 0 3px;font-size:.82rem}
+  /* Three columns: swatch, label, value. The label takes the slack so every
+     value lands on the same right edge, which is what makes a column of
+     numbers readable. The bare label text between <i> and <em> becomes the
+     middle grid item on its own. */
+  .chart-host .hov span{display:grid;grid-template-columns:10px 1fr auto;
+    align-items:baseline;column-gap:.45rem;padding:1.5px 0;line-height:1.35}
+  /* `white-space:nowrap` is right for the floating desktop tooltip, which must
+     not become a blob over the chart — but it is inherited here, where the box
+     is in normal flow with room to be taller, and it made a long value
+     ("... sinking - Seattle / Lake Union") overflow the phone instead of
+     wrapping onto a second line. */
+  .chart-host .hov span{white-space:normal}
+  .chart-host .hov span em{font-weight:600;text-align:right}
+  .chart-host .hov span i{margin-right:0;align-self:center}
+
+  /* The variability readout is not the same shape as the meteograms'.
+     Theirs is a flat list of labelled values, which wraps well. This one has
+     headers ("Sustained", "Max (gust)") with a row per model run underneath,
+     and flattening it into one wrapping line put the headers inline with the
+     numbers and collapsed each row's space-between so "18:00" and "6 mph" ran
+     together. It stays a block; only the rows flow. */
+  /* Same shape as the meteogram readout above: a row per reading, value on
+     the right edge. This one's rows are model runs rather than variables, and
+     it keeps its two headers — but it flowed inline before, which packed a
+     different number of runs onto each line depending on their values and put
+     "18:00" hard against "6 mph". */
+  .chart-host .hov-spread{display:block;max-width:none}
+  .chart-host .hov-spread .hov-t{font-weight:600;margin-bottom:3px;font-size:.82rem}
+  .chart-host .hov-spread b{display:block;margin:.35rem 0 1px}
+  .chart-host .hov-spread span{display:grid;grid-template-columns:1fr auto;
+    align-items:baseline;column-gap:.5rem;padding:1px 0;line-height:1.35}
+  .chart-host .hov-spread span i{margin:0}
+  /* "does not reach" is an absence, and the value rules above would render it
+     in the same weight and ink as a reading. It is the one entry in this box
+     that must NOT look like a number. */
+  .chart-host .hov .hov-none{color:var(--ink-3);font-weight:400;font-style:italic}
+}
+
+/* Tile icons. Sized in em so they track the label at both the normal and the
+   compact label size, and dimmed a little: the icon is a landmark for finding
+   a tile again in a strip of eleven, not a thing to read. */
+.tile-ico{width:1.15em;height:1.15em;vertical-align:-.2em;margin-right:.4em;opacity:.7}
+.tile.st-note .tile-ico,.tile.st-watch .tile-ico,.tile.st-alert .tile-ico{opacity:.85}
+
+/* ----------------------------------------------------------------------
+   Scrolling a wide table with a thumb.
+
+   The page itself was 478 px wide on a 375 px phone, because one table sat
+   directly in .wrap where overflow is visible. That is what made the tables
+   feel unscrollable: the whole document had a horizontal scroll of its own,
+   so the outer page took the gesture and the table under the finger never
+   moved. The tables are all in scroll containers now; the rules below stop
+   the next one that is not from doing it again silently.
+   ---------------------------------------------------------------------- */
+html,body{max-width:100%;overflow-x:clip}
+
+/* Without this, reaching the end of a table's scroll hands the gesture on to
+   whatever can scroll behind it — the reader keeps swiping the table and the
+   page starts moving sideways instead. */
+.tablewrap,.gridwrap,.tabstrip,.jump-prefs{overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch}
+
+/* The observations table becomes a card per station on a phone.
+   
+   This one cannot be squeezed the way the variability matrices were. Those
+   hold one- and two-digit numbers, so a 12 px column costs nothing a pinch
+   will not give back. This table's width is TEXT: station names, and a "feels
+   like" cell that is a whole sentence explaining why no adjustment was made.
+   It needs 1227 px in 345 — and at 28 percent that sentence is unreadable at
+   any zoom, because 71 characters in a 106 px column is six wrapped lines and
+   a row taller than the screen.
+
+   So the shape changes rather than the scale. A station is what you read here
+   anyway — "what is the nearest one saying" — not a column scanned downward,
+   which is why the row is the natural card. Same markup, restructured: the
+   header row goes away, each cell prints its own column name from data-label,
+   and the pairs sit two-up so ten fields make five lines rather than ten. */
+/* The agreement row, wherever its column is narrow.
+   
+   It carries an arrow AND a spread in one hour column — about 30 px at 768 and
+   10 at 320, against 43 px for the two side by side. Stacked, and without the
+   plus-minus or the degree sign, which the row's own label already supplies.
+   Dropping those beats clipping them: "±23°" cut to "±2" is a wrong number,
+   not an abbreviated one, and both are still in the cell's title in full.
+
+   This sits at 900 rather than 760 because the columns are already too narrow
+   for it a long way above a phone — the tablet range had this row losing a
+   digit with nothing else on the page visibly wrong. */
+@media (max-width:900px){
+  /* The hour headers, in the band between a phone and a desktop. Below 760 they
+     rotate; above 900 the columns are wide enough for them. Between the two
+     they stayed at the desktop size in a tablet-width column — 11.8 px needing
+     29 px of a 27 px cell — so a three-character header like "12p" lost its
+     meridiem, which is the character that separates morning from evening. Only
+     visible against a live run whose hours land differently from the one I had
+     locally. */
+  table.spreadtab thead th{font-size:clamp(.6rem,1.4vw,.74rem)}
+  table.spreadtab-dir tfoot td{letter-spacing:-.04em;padding:1px 0}
+  table.spreadtab-dir tfoot td svg{display:block;margin:0 auto}
+  /* .align-sd sets its own .66rem and so never inherited the cell's size — it
+     was drawing a two-digit spread at 10.6 px inside a 10 px column and losing
+     a digit. A class beats a descendant selector on the parent, so it has to
+     be named rather than left to inherit. */
+  table.spreadtab-dir tfoot .align-sd{font-size:clamp(5.4px,1.75vw,9px);
+    margin-top:0}
+  table.spreadtab-dir tfoot .deg,
+  table.spreadtab-dir tfoot .pm{display:none}
+}
+
+/* To 900, not 760: the stations table's min-content is over 900 px, so a
+   768 px tablet in portrait cannot show it as a table either. */
+@media (max-width:900px){
+  .tablewrap-cards{overflow-x:visible;background-image:none}
+  /* `width:auto`, against table.grid's `width:max-content`. A block-level
+     table still sizes to max-content, and its widest content here is the
+     unwrapped "feels like" sentence — so the card was 562 px wide and the
+     sentence ran off the screen with everything else fitting. */
+  table.grid.stations{display:block;width:auto;min-width:0}
+  table.stations tbody,table.stations tr,
+  table.stations th,table.stations td{display:block}
+  table.stations thead{display:none}
+  table.stations tr{border:1px solid var(--line);border-radius:6px;
+    padding:8px 11px;margin:0 0 8px}
+  /* Written to out-specify `table.grid tbody th.rowhead`, which is the sticky
+     first column: it carries a 38vw cap and a 2 px right border that made the
+     station name a narrow column with a rule beside it, inside a card that has
+     no columns at all. Matching its shape rather than adding !important. */
+  table.grid.stations tbody th.rowhead{border:0;padding:0 0 6px;text-align:left;
+    font-size:.95rem;position:static;max-width:none;min-width:0;width:auto;
+    background:none;white-space:normal}
+  /* One field per LINE, not two per line.
+     Two columns put a label and its value in 165 px, where the value wrapped
+     under the label and then sat beside the NEXT field's label — "Age" and
+     "Air" adjacent with one number between them, which is worse than a wide
+     table because it is quietly wrong rather than visibly cut off. */
+  table.grid.stations tbody td{border:0;padding:3px 0;text-align:left;
+    white-space:normal;display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:0 .6rem;border-top:1px solid var(--line-2)}
+  table.grid.stations tbody td:first-of-type{border-top:0}
+  /* The column name, which the header row is no longer there to supply. */
+  table.stations td::before{content:attr(data-label);color:var(--ink-3);
+    font-size:.8rem;font-weight:600;flex:0 0 7.2rem}
+  /* A cell that explains itself in a sentence puts that on its own line,
+     under the value, wrapping — the reason this table could not simply be
+     scaled down to fit. */
+  /* Only in the cells that carry a SENTENCE — marked `wide` by the template.
+     `.cell-sub` is also how the age is rendered, and a blanket full-width rule
+     dropped "1 h 06 m" onto its own line while every other value sat beside
+     its label. */
+  table.grid.stations tbody td.wide .cell-sub{flex-basis:100%;margin-top:2px;
+    white-space:normal}
+  table.grid.stations tbody td .cell-sub{white-space:normal}
+  table.stations tr.control th.rowhead::after{display:inline}
+}
+
+/* The hourly forecast SHRINKS rather than stacking.
+   
+   It is the one wide table where cards would be worse than the scroll: 49
+   rows, so 49 cards, and it is read by scanning a column down the hours —
+   "when does the wind get up" — which is exactly the reading a card destroys.
+   It is also barely over: 424 px in 345, and most of that is padding. Six
+   columns at 11 px each side spend 132 px on gaps between numbers that are
+   four characters wide.
+
+   So the padding goes and the columns fit. Nothing is hidden, nothing moves,
+   and the shape a reader scans is untouched. */
+@media (max-width:760px){
+  /* width:100% cannot pull a table under the MIN-CONTENT total of its columns
+     — that is where the overflow lived, not in the box model, and neither
+     box-sizing nor border-collapse touches it (both were tried and measured;
+     collapse bought one pixel). The min-content total is made of type and
+     padding, so the type scales with the viewport like the matrices above.
+     A fixed size tuned at 375 was six pixels too wide at 360. */
+  table.grid.hourly{width:100%;min-width:0;font-size:clamp(.44rem,2.5vw,.8rem)}
+  table.grid.hourly th,table.grid.hourly td{padding:6px clamp(1px,.45vw,3px)}
+  table.grid.hourly tbody th.rowhead{min-width:0;padding-left:6px}
+  /* .cell-wind carries its own .82rem and so ignored the table's size
+     entirely: it was setting 13.1 px inside an 8 px table, and being nowrap it
+     held the wind and gust columns open on its own. The THIRD rule on this
+     page to shrink a table and be defeated by a class nested inside it — see
+     .align-sd in the agreement row and .cell-sub in the station cards. A
+     descendant of a resized cell does not inherit a size it declares itself. */
+  table.grid.hourly .cell-wind{font-size:clamp(.44rem,2.5vw,.82rem)}
+  /* The unit suffix is what makes a wind cell two words wide. It is the same
+     unit down the whole column and named in the header. */
+  table.grid.hourly .tile-unit{font-size:.86em}
+}
+
+/* The two record tables stack on a phone instead of scrolling.
+   
+   `.times` is the provenance block at the top and the model-outlook block in
+   section 7. Both are records rather than grids — one subject per row, a few
+   facts about it — and both were about twice the width of a phone.
+
+   Unlike the observations table, these need no injected column names: their
+   cells already say what they are. "3 h 21 m ago" reads as an age, "11:00 am
+   PDT, Sun 6 Sep" as a time, "21Z cycle" as a cycle. So the row simply becomes
+   a block with its label on top and its facts flowing underneath, separated by
+   the same middot the page uses elsewhere for a list of small facts.
+
+   The prose cell keeps its own line, because it is the one that wraps. */
+@media (max-width:760px){
+  table.times{display:block;width:auto;min-width:0;border:0}
+  table.times tbody,table.times tr,table.times th,table.times td{display:block}
+  table.times tr{border:1px solid var(--line);border-radius:6px;margin:0 0 6px;
+    padding:6px 9px}
+  table.times th{border:0;padding:0 0 3px;background:none;white-space:normal;
+    font-size:.88rem}
+  table.times td{border:0;padding:0;white-space:normal;display:inline}
+  /* A middot between the inline facts, but never before the first one. */
+  table.times td + td::before{content:"\00b7";color:var(--ink-3);margin:0 .4em}
+  /* The prose column drops to its own line and loses the middot: it is a
+     sentence about the row, not another fact in the list. */
+  table.times td:last-of-type{display:block;max-width:none;margin-top:2px}
+  table.times td:last-of-type::before{content:none}
+  /* A row with nothing but an "unavailable" message has one cell, which is
+     therefore also the last — it must not be pushed onto a second line. */
+  table.times td[colspan]{display:block;margin-top:2px}
+}
+
+/* An affordance, on touch only. On a phone the right-hand edge of a wide table
+   is the only clue it continues, and a table cut off cleanly at the border
+   reads as a table that ends there. */
+@media (hover:none) and (pointer:coarse){
+  .tablewrap,.gridwrap{
+    background-image:linear-gradient(to left,var(--bg-2),rgba(0,0,0,0) 24px);
+    background-repeat:no-repeat;background-position:right center;
+    background-size:24px 100%;background-attachment:local}
+}
+
+/* A qualifier on a section heading — not a second heading, and not a badge to
+   be scanned past. Sized and coloured to read as an aside inside the title,
+   which is what it is: the point forecast is the official product, and saying
+   so belongs where the eye already is. */
+.h2-tag{font-size:.62em;font-weight:600;color:var(--ink-3);letter-spacing:.02em;
+  white-space:nowrap;vertical-align:.18em;margin-left:.5em}
+.h2-tag::before{content:'(';}
+.h2-tag::after{content:')';}
+
+
+/* The lightning source timeline.
+   Colour is the reading here, so the key carries swatches rather than the
+   page's usual text-only legend. */
+/* STACKED, not side by side. Two ladders on one line read as one ladder of
+   eight rungs — which is the misreading the grouping exists to prevent, and
+   side-by-side groups also wrap unpredictably as the viewport narrows, so the
+   split lands in a different place on every screen. */
+.ltg-key{display:block;margin-top:6px;font-size:.78rem;color:var(--ink-3)}
+/* The two scales are separated because they are two: a graded model index and
+   a binary official flag that happens to land in the same warm hues. */
+.ltg-key-group{display:flex;align-items:baseline;gap:10px;margin:3px 0}
+.ltg-key-group b{font-weight:600;color:var(--ink-2);flex:0 0 9.5rem}
+.ltg-key-items{display:flex;flex-wrap:wrap;gap:2px 12px;flex:1 1 auto;min-width:0}
+/* How to use the chart, not what a colour means — so it reads as a note under
+   the key rather than as an unlabelled entry inside it. */
+.ltg-hint{margin:4px 0 0;font-size:.78rem;color:var(--ink-3);font-style:italic}
+/* A 9.5rem gutter is most of a phone. The label goes above its own ladder
+   there instead of beside it. */
+@media (max-width:600px){
+  .ltg-key-group{display:block}
+  .ltg-key-group b{display:block;margin-bottom:1px}
+}
+.ltg-key span{display:inline-flex;align-items:center;gap:.35rem}
+.ltg-key i{width:11px;height:11px;border-radius:2px;display:inline-block;flex:0 0 auto}
+/* Drawn as a broken rule in the chart, so it is a broken rule here too. */
+.ltg-key i.ltg-key-noreach{height:0;border-top:1px dashed var(--line);border-radius:0}
+/* The favourable-cap mark, drawn as the chart draws it: an outline over
+   nothing, because it marks a band rather than adding a colour. */
+.ltg-key i.inst-key-best{background:none;border:1.5px dashed var(--chart-extreme)}
+/* The magnitude ramp. Its blocks touch, so it reads as one graded strip rather
+   than five swatches, and each is the accent at a set opacity — exactly what
+   the cells are — so it composites against the page in whichever theme is on.
+   That is the point: the direction of lightness flips between themes and the
+   direction of prominence does not, so the key shows the ramp instead of
+   naming one. */
+.ltg-key-ramp{display:inline-flex;flex:0 0 auto;border-radius:2px;overflow:hidden}
+.ltg-key-ramp i{width:9px;height:11px;border-radius:0}
+
+/* Two rows of small labels in a 760-unit viewBox scale to about four pixels on
+   a phone. The chart keeps its size and the box scrolls, which is what every
+   other wide thing on this page does. */
+@media (max-width:760px){
+  /* The scroller wraps the SVG alone. On the host it also clipped the key and
+     the quotes, because overflow-x on one axis forces the other to auto. */
+  /* Fits rather than scrolls, like the two profiles below it. This one hid its
+     side-scroll one level deeper — inside the chart wrapper rather than on the
+     host — so an audit of the hosts said it was fine while a phone was still
+     swiping through it an hour at a time. */
+  .ltgtl-scroll{overflow-x:visible}
+  .ltgtl-scroll svg{min-width:0;width:100%}
+}
+
+
+/* The lightning tile's other two sources.
+   Compact shortens them rather than folding them away: compact exists so the
+   strip fits one screenshot, and a screenshot that drops two of three sources
+   for the one hazard with no partial response available is not a trade worth
+   making. */
+.tile-src-c{display:none}
+.compact .tile-src{display:none}
+.compact .tile-src-c{display:block;font-size:.7rem;color:var(--ink-3);margin-top:2px}
+.compact .tile.st-note .tile-src-c,.compact .tile.st-watch .tile-src-c,
+.compact .tile.st-alert .tile-src-c{color:inherit;opacity:.8}
+
+/* The forecaster's sentences, under the timeline they belong to. */
+.ltg-quotes{margin-top:10px;font-size:.84rem;color:var(--ink-2)}
+.ltg-quotes-head{margin:6px 0 4px;color:var(--ink-3);font-size:.8rem}
+.ltg-quotes ul{margin:4px 0;padding-left:1.15em}
+.ltg-quotes li{margin:.35em 0}
+
+
+/* Wide, hour-by-hour graphics on a phone: FIT, do not scroll.
+   
+   These were held at their natural width and side-scrolled, which meant four of
+   them ran off the screen and had to be swiped through an hour at a time. The
+   page sets no maximum-scale and no user-scalable=no, so a reader can pinch —
+   and that changes what "too small to read" means. Scaled to fit, the whole run
+   is on screen as a picture: the colour field is the primary reading here, and
+   the shape of a day is exactly what a 345 px view can still show. The numbers
+   inside are real text and real SVG, so they re-rasterise crisply on zoom
+   rather than blurring the way a scaled bitmap would.
+
+   Nothing is hidden by this. Every one of these also has a slider whose readout
+   spells out the hour under it in full size, for anyone who would rather not
+   pinch. */
+@media (max-width:760px){
+  .czprofile-host,[data-chart="instability"]{overflow-x:visible}
+  .czprofile-host svg,[data-chart="instability"] svg{min-width:0;width:100%}
+
+  /* The variability matrices are HTML tables, so they fit by giving every hour
+     an equal share of the width rather than by scaling a canvas. `fixed`
+     layout is what makes that possible: without it a table's columns are sized
+     by their content and no width declaration can bring them under it.
+
+     The type SCALES WITH THE VIEWPORT rather than taking one size for every
+     phone. 22 columns share whatever is left after the run label, so the space
+     per column is a fraction of the screen — about 12 px at 375 and 10 at 320
+     — and a size chosen for one is too big for the other. Too big does not
+     mean small-and-awkward here: the cells clip, so a two-digit gust renders
+     as one digit, which is a WRONG number rather than an unreadable one. At
+     320 px that was 131 cells.
+
+     clamp() keeps it from running away in either direction: never smaller than
+     a 320 px phone needs, never larger than the desktop rule it replaces. */
+  .gridwrap{overflow-x:visible}
+  table.spreadtab{font-size:clamp(6.2px,2.05vw,8px)}
+  table.spreadtab th,table.spreadtab td{padding:2px 1px;overflow:hidden}
+  /* Headers turned on their side.
+     22 hour columns in 277 px is 12.6 px each, which fits exactly two
+     characters — so "11a" lost its meridiem, the one letter that separates a
+     morning hour from an evening one. Rotated, the label has the row's height
+     to run down instead of a column's width to run across, and it fits whole
+     in either time format. Standard for a dense time matrix, and it costs
+     about 20 px of header height once. */
+  /* The rotation is on the SPAN, not on the cell.
+     `writing-mode` on a <th> under table-layout:fixed entangles the cell's
+     block direction with table box layout, and engines have never agreed on
+     the result — it is the construct here most likely to render differently on
+     a phone from the desktop browser this was measured in. On an inline-block
+     span it is ordinary and the cell stays a plain table cell. */
+  table.spreadtab thead th{font-size:clamp(5.9px,1.95vw,7.6px);
+    padding:3px 0;height:2.4rem;vertical-align:bottom;overflow:hidden}
+  table.spreadtab thead th .hh{writing-mode:vertical-rl;transform:rotate(180deg);
+    display:inline-block;line-height:1}
+  table.spreadtab thead th:first-child{height:auto}
+  /* The width goes on the FIRST COLUMN, not on .runhead. Fixed layout takes
+     its column widths from the first row, and the first row is the header —
+     whose leading cell is a plain "Run" th, not a .runhead. Declaring it only
+     on the body rows left the run labels sharing a 14 px column with the
+     hours, clipped to "15:". */
+  table.spreadtab .runhead{font-size:clamp(6.2px,2.05vw,8px);padding-right:3px}
+  table.spreadtab .cell-sub{font-size:clamp(5.4px,1.75vw,6.8px)}
+  /* The direction matrix draws an arrow per cell, which has a drawn size
+     rather than a font size and would otherwise spill its column. */
+  table.spreadtab-dir td svg{width:clamp(7px,2.4vw,9px);
+    height:clamp(7px,2.4vw,9px)}
+}
+
+/* Sources that did not answer this build.
+
+   A NOTE, not an alert — unlike the overdue banner below. Nothing here is a
+   hazard: it is the page being honest about its own gaps, which is the same
+   job the ages in the table above do, and dressing that in warning colours
+   would cry wolf every time one feed times out. */
+.misses{margin:10px 0;padding:8px 11px;border-radius:6px;font-size:.86rem;
+  background:var(--bg-2);border:1px solid var(--line);color:var(--ink-2)}
+.misses .miss{white-space:normal}
+.misses .miss-note{display:block;margin-top:3px;font-size:.82rem;color:var(--ink-3)}
+
+/* The overdue banner. Styled as an alert rather than a note: a stale page is
+   not a caveat about one reading, it is a caveat about all of them. */
+.overdue{margin:10px 0;padding:8px 11px;border-radius:6px;font-size:.9rem;
+  background:var(--alert-bg);border:1px solid var(--alert-line);color:var(--alert-ink)}
+
+
+/* The provenance table gained an age column, and age is the reason the table
+   exists — so on a phone it is the one that must be readable without
+   scrolling. The row LABEL gives way instead: capped, it wraps only when it
+   has to, so "Report generated" still sits on one line while "Forecast
+   discussion issued" takes two and the age beside it stays whole. */
+@media (max-width:760px){
+  .times th{white-space:normal;max-width:10.5rem}
+}
+
+/* The "has NWS amended this?" note, in the provenance row it belongs to.
+   Three states, and they are deliberately different weights: an amendment is
+   worth noticing, a confirmed all-clear is worth having and not worth looking
+   at, and a failed check must not read like either. */
+.fcheck{font-size:.92em}
+.fcheck-wait,.fcheck-ok{color:var(--ink-3)}
+.fcheck-fail{color:var(--ink-3);font-style:italic}
+.fcheck-new{color:var(--warn-ink);font-weight:600}
+
+/* The amendment notice. A warning rather than an alert: the page is not wrong,
+   it is superseded — and only in the one section the note names. */
+.amended{margin:10px 0;padding:8px 11px;border-radius:6px;font-size:.9rem;
+  background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-ink)}
